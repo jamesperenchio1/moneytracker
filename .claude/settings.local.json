@@ -2,7 +2,26 @@
   "permissions": {
     "allow": [
       "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm --no-turbopack)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(gh auth:*)",
+      "Bash(git commit:*)",
+      "Bash(gh repo:*)",
+      "Bash(docker info:*)",
+      "Bash(docker-compose version:*)",
+      "Bash(pip3 --version)",
+      "Bash(python3 -c \"import sys; print\\(sys.version\\)\")",
+      "Bash(brew info:*)",
+      "Bash(brew services:*)",
+      "Bash(brew list:*)",
+      "Bash(npm --version)",
+      "Bash(python3.13 --version)",
+      "Bash(/opt/miniconda3/bin/python3.13 --version)",
+      "Bash(/opt/miniconda3/bin/python --version)",
+      "Bash(brew install:*)",
+      "Bash(/opt/homebrew/opt/postgresql@16/bin/psql postgres:*)",
+      "Bash(python3.13 -m venv .venv)",
+      "Bash(.venv/bin/pip install:*)",
+      "Bash(.venv/bin/python -m py_compile app/models/user.py app/models/bank.py app/models/transaction.py app/models/portfolio.py app/models/asset.py app/models/statement.py app/models/brokerage.py)"
     ]
   }
 }

@@ -24,18 +24,19 @@ async def get_or_create_asset(
     if asset:
         return asset
 
-    # Fetch info from Yahoo Finance
+    # Fetch info from Yahoo Finance using fast_info (avoids rate limits)
     try:
         ticker = yf.Ticker(symbol)
-        info = ticker.info
+        fi = ticker.fast_info
+        name = getattr(fi, "exchange", None)  # fast_info has limited fields
+        price = _get_current_price_fast(symbol)
         asset = Asset(
             symbol=symbol.upper(),
-            name=info.get("shortName") or info.get("longName") or symbol.upper(),
+            name=symbol.upper(),
             asset_type=asset_type,
-            exchange=info.get("exchange"),
-            currency=info.get("currency", currency),
-            current_price=info.get("currentPrice") or info.get("regularMarketPrice"),
-            last_price_update=datetime.now(timezone.utc),
+            currency=currency,
+            current_price=price,
+            last_price_update=datetime.now(timezone.utc) if price else None,
         )
     except Exception:
         asset = Asset(
@@ -49,6 +50,33 @@ async def get_or_create_asset(
     await db.flush()
     await db.refresh(asset)
     return asset
+
+
+def _get_current_price_fast(symbol: str) -> Optional[float]:
+    """Get current price via batch download (reliable, avoids quoteSummary rate limits)."""
+    try:
+        df = yf.download(symbol, period="2d", progress=False, auto_adjust=True)
+        if not df.empty:
+            return float(df["Close"].iloc[-1])
+    except Exception:
+        pass
+    return None
+
+
+def get_current_prices_batch(symbols: list[str]) -> dict[str, float]:
+    """Fetch current prices for multiple symbols at once (efficient batch download)."""
+    if not symbols:
+        return {}
+    try:
+        df = yf.download(symbols, period="2d", progress=False, auto_adjust=True)
+        if df.empty:
+            return {}
+        close = df["Close"].iloc[-1]
+        if len(symbols) == 1:
+            return {symbols[0]: float(close)} if not hasattr(close, "items") else {symbols[0]: float(close.iloc[0])}
+        return {str(sym): float(price) for sym, price in close.items() if price and str(price) != "nan"}
+    except Exception:
+        return {}
 
 
 def fetch_historical_prices_sync(symbol: str, start_date: date, end_date: date = None) -> list[dict]:
@@ -110,17 +138,12 @@ async def fetch_and_store_historical_prices(
 
 async def update_current_price(asset_id: int, symbol: str, db: AsyncSession) -> Optional[float]:
     """Update the current price of an asset."""
-    try:
-        ticker = yf.Ticker(symbol)
-        info = ticker.info
-        price = info.get("currentPrice") or info.get("regularMarketPrice")
-        if price:
-            asset = await db.get(Asset, asset_id)
-            if asset:
-                asset.current_price = price
-                asset.last_price_update = datetime.now(timezone.utc)
-                await db.commit()
-            return price
-    except Exception:
-        pass
+    price = _get_current_price_fast(symbol)
+    if price:
+        asset = await db.get(Asset, asset_id)
+        if asset:
+            asset.current_price = price
+            asset.last_price_update = datetime.now(timezone.utc)
+            await db.commit()
+        return price
     return None

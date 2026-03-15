@@ -212,22 +212,26 @@ def _update_holding(account_id: int, asset_id: int, ptxn, db: Session):
 
 @celery_app.task
 def update_all_asset_prices():
-    """Update current prices for all tracked assets."""
-    import yfinance as yf
+    """Update current prices for all tracked assets using batch download."""
+    from app.services.market_data import get_current_prices_batch
 
     with get_sync_session() as db:
         assets = db.execute(select(Asset)).scalars().all()
+        if not assets:
+            return
+
+        symbols = [a.symbol for a in assets]
+        prices = get_current_prices_batch(symbols)
+
         for asset in assets:
-            try:
-                ticker = yf.Ticker(asset.symbol)
-                info = ticker.info
-                price = info.get("currentPrice") or info.get("regularMarketPrice")
-                if price:
-                    asset.current_price = price
-                    asset.last_price_update = datetime.now(timezone.utc)
-            except Exception as e:
-                logger.warning(f"Failed to update price for {asset.symbol}: {e}")
+            price = prices.get(asset.symbol)
+            if price:
+                asset.current_price = price
+                asset.last_price_update = datetime.now(timezone.utc)
+                logger.info(f"Updated {asset.symbol}: ${price:.2f}")
+
         db.commit()
+        logger.info(f"Prices updated for {len(prices)}/{len(symbols)} assets")
 
 
 @celery_app.task
