@@ -10,7 +10,7 @@ from app.workers.celery_app import celery_app
 from app.core.config import get_settings
 from app.models.statement import Statement, StatementType, StatementStatus
 from app.models.transaction import Transaction, TransactionType, Category
-from app.models.bank import BankAccount
+from app.models.bank import Bank, BankAccount, BankName
 from app.models.brokerage import BrokerageAccount
 from app.models.portfolio import Holding, PortfolioTransaction, TradeAction
 from app.models.asset import Asset, HistoricalPrice
@@ -61,6 +61,52 @@ def process_statement(self, statement_id: int):
             raise self.retry(exc=exc, countdown=60)
 
 
+def _get_or_create_bank_account(stmt: Statement, parser_institution_code: str, db: Session) -> BankAccount:
+    """Resolve the correct BankAccount for this statement, auto-creating if needed.
+
+    Priority:
+    1. stmt.institution_code (explicitly set by caller)
+    2. Parser's institution_code (auto-detected)
+    Falls back to creating a new account linked to the matching Bank row.
+    """
+    # Map parser institution codes to BankName enum values
+    _INSTITUTION_TO_BANK = {
+        "kasikorn": BankName.KASIKORN,
+        "kasikorn_pdf": BankName.KASIKORN,
+        "scb": BankName.SCB,
+        "scb_pdf": BankName.SCB,
+        "generic": BankName.OTHER,
+        "generic_pdf": BankName.OTHER,
+    }
+
+    code = stmt.institution_code or parser_institution_code
+    bank_name = _INSTITUTION_TO_BANK.get(code, BankName.OTHER)
+
+    # Find the Bank row
+    bank = db.execute(select(Bank).where(Bank.code == bank_name)).scalars().first()
+
+    # Find existing account for this user + bank
+    query = select(BankAccount).where(BankAccount.user_id == stmt.user_id)
+    if bank:
+        query = query.where(BankAccount.bank_id == bank.id)
+    account = db.execute(query).scalars().first()
+
+    if not account:
+        # Auto-create a bank account for this institution
+        account = BankAccount(
+            user_id=stmt.user_id,
+            bank_id=bank.id if bank else None,
+            account_name=bank.name if bank else "Unknown Bank",
+            currency="THB",
+            balance=0,
+        )
+        db.add(account)
+        db.flush()
+        logger.info(f"Auto-created BankAccount for user {stmt.user_id}, bank={bank_name.value}")
+
+    return account
+
+
 def _process_bank_statement(stmt: Statement, db: Session) -> int:
     """Parse bank statement and insert transactions."""
     parser = detect_bank_parser(stmt.file_path, stmt.institution_code)
@@ -69,13 +115,8 @@ def _process_bank_statement(stmt: Statement, db: Session) -> int:
     # Load category map for auto-categorization
     categories = {c.name.value: c for c in db.execute(select(Category)).scalars().all()}
 
-    # Get or validate bank account
-    account = db.execute(
-        select(BankAccount).where(BankAccount.user_id == stmt.user_id)
-    ).scalars().first()
-
-    if not account:
-        raise ValueError("No bank account found for user. Create one first.")
+    # Get or auto-create the bank account for this statement's institution
+    account = _get_or_create_bank_account(stmt, parser.institution_code, db)
 
     count = 0
     for ptxn in parsed_txns:
