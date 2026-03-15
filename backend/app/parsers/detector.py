@@ -1,18 +1,22 @@
 """Auto-detect the correct parser for a given statement file."""
 
 from app.parsers.base import BaseBankParser, BaseBrokerageParser
-from app.parsers.banks.kasikorn import KasikornParser
-from app.parsers.banks.scb import SCBParser
+from app.parsers.banks.kasikorn import KasikornParser, KasikornPDFParser
+from app.parsers.banks.scb import SCBParser, SCBPDFParser
 from app.parsers.banks.generic import GenericBankCSVParser, GenericBankPDFParser
 from app.parsers.brokerages.webull import WebullParser, WebullThailandParser
 from app.parsers.brokerages.dime import DimeParser
 from app.parsers.brokerages.generic import GenericBrokerageParser
 
 
-# Ordered by specificity — specific parsers first, generic last
+# Ordered by specificity — specific parsers first, generic last.
+# PDF-specific parsers must come before their CSV counterparts so a PDF
+# content sample match goes to the PDF parser, not the CSV one.
 BANK_PARSERS: list[type[BaseBankParser]] = [
-    KasikornParser,
-    SCBParser,
+    KasikornPDFParser,  # KBank PDF e-statements
+    SCBPDFParser,       # SCB PDF e-statements
+    KasikornParser,     # KBank CSV
+    SCBParser,          # SCB CSV
     GenericBankPDFParser,
     GenericBankCSVParser,
 ]
