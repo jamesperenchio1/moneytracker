@@ -11,6 +11,7 @@ import {
   RefreshCw,
   X,
   Settings,
+  Brain,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -42,8 +43,9 @@ import FileUpload from "@/components/FileUpload";
 import PlatformBreakdown from "@/components/PlatformBreakdown";
 import SettingsPage from "@/components/SettingsPage";
 import TimePeriodSelector, { type Period } from "@/components/TimePeriodSelector";
+import AiInsights from "@/components/AiInsights";
 
-type Tab = "overview" | "investments" | "banking" | "upload" | "settings";
+type Tab = "overview" | "investments" | "banking" | "upload" | "settings" | "ai";
 
 export default function Home() {
   const { user, loading, login, register, logout } = useAuth();
@@ -294,6 +296,7 @@ export default function Home() {
             { id: "banking" as Tab, label: "Banking", icon: Building2 },
             { id: "upload" as Tab, label: "Upload", icon: Upload },
             { id: "settings" as Tab, label: "Settings", icon: Settings },
+            { id: "ai" as Tab, label: "AI Insights", icon: Brain },
           ].map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -334,11 +337,12 @@ export default function Home() {
                 onClick={() => setTab("investments")}
               />
               <StatCard
-                title="Total Cash"
-                value={formatCurrency(dashboard?.total_cash ?? 0, "THB")}
+                title="Bank Cash"
+                value={formatCurrency(dashboard?.bank_cash ?? dashboard?.total_cash ?? 0, "THB")}
                 icon={<Building2 className="w-5 h-5" />}
                 gradient="var(--gradient-green)"
                 accentColor="#22c55e"
+                subtitle={dashboard?.credit_card_debt ? `CC Debt: ${formatCurrency(dashboard.credit_card_debt, "THB")}` : undefined}
                 onClick={() => setTab("banking")}
               />
               <StatCard
@@ -556,11 +560,12 @@ export default function Home() {
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <StatCard
-                title="Total Cash"
-                value={formatCurrency(dashboard?.total_cash ?? 0, "THB")}
+                title="Bank Cash"
+                value={formatCurrency(dashboard?.bank_cash ?? dashboard?.total_cash ?? 0, "THB")}
                 icon={<Building2 className="w-5 h-5" />}
                 gradient="var(--gradient-green)"
                 accentColor="#22c55e"
+                subtitle={dashboard?.credit_card_debt ? `CC Debt: ${formatCurrency(dashboard.credit_card_debt, "THB")} · Net: ${formatCurrency(dashboard.total_cash, "THB")}` : undefined}
               />
               <StatCard
                 title="Monthly Burn Rate"
@@ -568,7 +573,7 @@ export default function Home() {
                   dashboard?.monthly_spending ?? 0,
                   "THB"
                 )}
-                subtitle={`Net: ${formatCurrency((dashboard?.monthly_income ?? 0) - (dashboard?.monthly_spending ?? 0), "THB")}`}
+                subtitle={`Income: ${formatCurrency(dashboard?.monthly_income ?? 0, "THB")} · Net: ${formatCurrency((dashboard?.monthly_income ?? 0) - (dashboard?.monthly_spending ?? 0), "THB")}`}
                 gradient="var(--gradient-pink)"
                 accentColor="#ec4899"
               />
@@ -726,6 +731,12 @@ export default function Home() {
         {tab === "settings" && (
           <div className="max-w-4xl mx-auto">
             <SettingsPage user={user} onUserUpdate={(u) => window.location.reload()} />
+          </div>
+        )}
+
+        {tab === "ai" && (
+          <div className="max-w-4xl mx-auto">
+            <AiInsights />
           </div>
         )}
       </main>
