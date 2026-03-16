@@ -15,7 +15,7 @@ from app.models.brokerage import BrokerageAccount
 from app.models.portfolio import Holding, PortfolioTransaction, TradeAction
 from app.models.asset import Asset, HistoricalPrice
 from app.parsers.detector import detect_bank_parser, detect_brokerage_parser
-from app.services.categorizer import infer_category
+from app.services.categorizer import infer_category, infer_category_with_patterns
 from app.services.market_data import fetch_historical_prices_sync
 
 logger = logging.getLogger(__name__)
@@ -75,6 +75,8 @@ def _get_or_create_bank_account(stmt: Statement, parser_institution_code: str, d
         "kasikorn_pdf": BankName.KASIKORN,
         "scb": BankName.SCB,
         "scb_pdf": BankName.SCB,
+        "krungsri_cc": BankName.KRUNGSRI,
+        "payslip": BankName.OTHER,
         "generic": BankName.OTHER,
         "generic_pdf": BankName.OTHER,
     }
@@ -110,7 +112,7 @@ def _get_or_create_bank_account(stmt: Statement, parser_institution_code: str, d
 def _process_bank_statement(stmt: Statement, db: Session) -> int:
     """Parse bank statement and insert transactions."""
     parser = detect_bank_parser(stmt.file_path, stmt.institution_code)
-    parsed_txns = parser.parse(stmt.file_path)
+    parsed_result = parser.parse(stmt.file_path)
 
     # Load category map for auto-categorization
     categories = {c.name.value: c for c in db.execute(select(Category)).scalars().all()}
@@ -119,9 +121,9 @@ def _process_bank_statement(stmt: Statement, db: Session) -> int:
     account = _get_or_create_bank_account(stmt, parser.institution_code, db)
 
     count = 0
-    for ptxn in parsed_txns:
-        # Auto-categorize
-        cat_name = infer_category(ptxn.description)
+    for ptxn in parsed_result.transactions:
+        # Auto-categorize (keyword first, then pattern matching from DB)
+        cat_name = infer_category_with_patterns(ptxn.description, db)
         category = categories.get(cat_name.value) if cat_name else None
 
         txn = Transaction(
@@ -140,11 +142,16 @@ def _process_bank_statement(stmt: Statement, db: Session) -> int:
         db.add(txn)
         count += 1
 
-        # Update account balance
-        if ptxn.transaction_type == "credit":
-            account.balance = float(account.balance or 0) + ptxn.amount
-        elif ptxn.transaction_type == "debit":
-            account.balance = float(account.balance or 0) - ptxn.amount
+    # Set balance from statement closing balance if available (accurate),
+    # otherwise fall back to accumulating from transactions
+    if parsed_result.closing_balance is not None:
+        account.balance = parsed_result.closing_balance
+    else:
+        for ptxn in parsed_result.transactions:
+            if ptxn.transaction_type == "credit":
+                account.balance = float(account.balance or 0) + ptxn.amount
+            elif ptxn.transaction_type == "debit":
+                account.balance = float(account.balance or 0) - ptxn.amount
 
     db.commit()
     return count

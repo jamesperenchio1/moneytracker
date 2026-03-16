@@ -1,5 +1,6 @@
-from datetime import datetime, timezone
-from sqlalchemy import String, DateTime, Integer, ForeignKey, Numeric, Enum as SQLEnum
+from datetime import datetime, date, timezone
+from typing import Optional
+from sqlalchemy import String, DateTime, Date, Integer, ForeignKey, Numeric, Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 import enum
@@ -26,6 +27,7 @@ class Holding(Base):
     quantity: Mapped[float] = mapped_column(Numeric(18, 8), nullable=False, default=0)
     avg_cost_basis: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     total_cost_basis: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
+    purchase_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

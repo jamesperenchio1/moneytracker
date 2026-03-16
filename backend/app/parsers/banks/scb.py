@@ -16,7 +16,7 @@ import pdfplumber
 from datetime import datetime
 from typing import Optional
 
-from app.parsers.base import BaseBankParser, ParsedBankTransaction
+from app.parsers.base import BaseBankParser, ParsedBankTransaction, ParsedStatement
 
 
 class SCBParser(BaseBankParser):
@@ -32,7 +32,7 @@ class SCBParser(BaseBankParser):
             return True
         return False
 
-    def parse(self, file_path: str) -> list[ParsedBankTransaction]:
+    def parse(self, file_path: str) -> ParsedStatement:
         df = pd.read_csv(file_path)
         df.columns = [c.strip().lower() for c in df.columns]
 
@@ -55,7 +55,7 @@ class SCBParser(BaseBankParser):
                 )
             except Exception:
                 continue
-        return transactions
+        return ParsedStatement(transactions=transactions)
 
     def _parse_date(self, row) -> datetime:
         for col in ("date", "transaction date", "transaction_date", "datetime"):
@@ -117,17 +117,21 @@ class SCBPDFParser(BaseBankParser):
         content = content_sample.lower()
         return "siam commercial" in content or ("scb" in content and "saving account" in content)
 
-    def parse(self, file_path: str) -> list[ParsedBankTransaction]:
+    def parse(self, file_path: str) -> ParsedStatement:
         transactions = []
+        closing_balance: Optional[float] = None
         with pdfplumber.open(file_path) as pdf:
             for page in pdf.pages:
                 for table in (page.extract_tables() or []):
-                    transactions.extend(self._parse_table(table))
-        return transactions
+                    txns, last_bal = self._parse_table(table)
+                    transactions.extend(txns)
+                    if last_bal is not None:
+                        closing_balance = last_bal
+        return ParsedStatement(transactions=transactions, closing_balance=closing_balance)
 
-    def _parse_table(self, table: list) -> list[ParsedBankTransaction]:
+    def _parse_table(self, table: list) -> tuple[list[ParsedBankTransaction], Optional[float]]:
         if not table or len(table) < 2:
-            return []
+            return [], None
 
         data_row = None
         for row in table[1:]:
@@ -135,7 +139,7 @@ class SCBPDFParser(BaseBankParser):
                 data_row = row
                 break
         if data_row is None:
-            return []
+            return [], None
 
         tx_lines   = str(data_row[0]).split("\n") if data_row[0] else []
         bal_lines  = str(data_row[5]).split("\n") if len(data_row) > 5 and data_row[5] else []
@@ -173,6 +177,7 @@ class SCBPDFParser(BaseBankParser):
         balance_values = [self._to_float(b) for b in bal_lines if b.strip()]
         tx_balances = balance_values[1:] if len(balance_values) > 1 else balance_values
         prev_balance = balance_values[0] if balance_values else 0.0
+        last_balance: Optional[float] = None
 
         transactions: list[ParsedBankTransaction] = []
         for idx, (date_s, time_s, code, channel, amount) in enumerate(tx_entries):
@@ -201,8 +206,9 @@ class SCBPDFParser(BaseBankParser):
                 )
             )
             prev_balance = curr_balance
+            last_balance = curr_balance
 
-        return transactions
+        return transactions, last_balance
 
     def _to_float(self, value: str) -> float:
         try:

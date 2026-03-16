@@ -1,7 +1,7 @@
 """Base parser interface for all statement parsers."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
@@ -16,6 +16,13 @@ class ParsedBankTransaction:
     receiver: Optional[str] = None
     reference: Optional[str] = None
     currency: str = "THB"
+
+
+@dataclass
+class ParsedStatement:
+    """Wraps parser output to include statement-level metadata."""
+    transactions: list[ParsedBankTransaction] = field(default_factory=list)
+    closing_balance: Optional[float] = None  # positive=asset, negative=liability (CC)
 
 
 @dataclass
@@ -38,8 +45,8 @@ class BaseBankParser(ABC):
     institution_name: str = ""
 
     @abstractmethod
-    def parse(self, file_path: str) -> list[ParsedBankTransaction]:
-        """Parse a bank statement file and return normalized transactions."""
+    def parse(self, file_path: str) -> ParsedStatement:
+        """Parse a bank statement file and return a ParsedStatement with transactions and closing balance."""
         ...
 
     @classmethod

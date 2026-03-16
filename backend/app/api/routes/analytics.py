@@ -27,15 +27,32 @@ from app.schemas.analytics import (
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
+def _period_to_timedelta(period: str) -> timedelta:
+    """Convert period string (1D/1W/1M/3M/6M/1Y) to timedelta."""
+    mapping = {
+        "1D": timedelta(days=1),
+        "1W": timedelta(weeks=1),
+        "1M": timedelta(days=30),
+        "3M": timedelta(days=90),
+        "6M": timedelta(days=180),
+        "1Y": timedelta(days=365),
+    }
+    return mapping.get(period.upper(), timedelta(days=180))
+
+
 @router.get("/dashboard", response_model=AnalyticsDashboard)
 async def get_dashboard(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     months: int = Query(6, ge=1, le=24),
+    period: Optional[str] = Query(None),
 ):
     now = datetime.now(timezone.utc)
     start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    lookback = now - timedelta(days=months * 30)
+    if period:
+        lookback = now - _period_to_timedelta(period)
+    else:
+        lookback = now - timedelta(days=months * 30)
 
     user_accounts = select(BankAccount.id).where(BankAccount.user_id == user.id)
 
@@ -45,7 +62,7 @@ async def get_dashboard(
     )
     total_cash = float(cash_result.scalar())
 
-    # Total investments (sum of holdings * current price)
+    # Total investments (sum of holdings * current price, in USD)
     holdings_result = await db.execute(
         select(Holding)
         .join(BrokerageAccount)
@@ -53,9 +70,19 @@ async def get_dashboard(
         .where(BrokerageAccount.user_id == user.id)
     )
     holdings = holdings_result.scalars().all()
-    total_investments = sum(
+    total_investments_usd = sum(
         float(h.quantity) * float(h.asset.current_price or 0) for h in holdings
     )
+    # Convert USD → THB for net worth (use cached rate, fall back to 34)
+    try:
+        import yfinance as yf
+        fx = yf.download("THBUSD=X", period="2d", progress=False, auto_adjust=True)
+        thb_usd = float(fx["Close"].iloc[-1].iloc[0]) if not fx.empty else (1 / 34.0)
+        usd_thb = 1 / thb_usd if thb_usd else 34.0
+    except Exception:
+        usd_thb = 34.0
+    total_investments = total_investments_usd  # kept in USD for display
+    total_investments_thb = total_investments_usd * usd_thb
 
     # Monthly spending (current month debits)
     spending_result = await db.execute(
@@ -219,7 +246,7 @@ async def get_dashboard(
             )
 
     return AnalyticsDashboard(
-        net_worth=total_cash + total_investments,
+        net_worth=total_cash + total_investments_thb,
         total_investments=total_investments,
         total_cash=total_cash,
         monthly_spending=monthly_spending,
@@ -236,10 +263,14 @@ async def get_net_worth_history(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     months: int = Query(12, ge=1, le=60),
+    period: Optional[str] = Query(None),
 ):
     """Reconstruct historical net worth using transaction data and historical prices."""
     from app.services.history import reconstruct_net_worth_history
 
+    if period:
+        td = _period_to_timedelta(period)
+        months = max(1, int(td.days / 30)) or 1
     return await reconstruct_net_worth_history(user.id, months, db)
 
 
@@ -248,8 +279,12 @@ async def get_portfolio_history(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     months: int = Query(12, ge=1, le=60),
+    period: Optional[str] = Query(None),
 ):
     """Reconstruct historical portfolio value using holdings and historical prices."""
     from app.services.history import reconstruct_portfolio_history
 
+    if period:
+        td = _period_to_timedelta(period)
+        months = max(1, int(td.days / 30)) or 1
     return await reconstruct_portfolio_history(user.id, months, db)

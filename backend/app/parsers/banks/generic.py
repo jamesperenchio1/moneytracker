@@ -9,7 +9,7 @@ import pdfplumber
 from datetime import datetime
 from typing import Optional
 
-from app.parsers.base import BaseBankParser, ParsedBankTransaction
+from app.parsers.base import BaseBankParser, ParsedBankTransaction, ParsedStatement
 
 
 class GenericBankCSVParser(BaseBankParser):
@@ -26,7 +26,7 @@ class GenericBankCSVParser(BaseBankParser):
     def can_parse(cls, file_path: str, content_sample: str = "") -> bool:
         return file_path.lower().endswith((".csv", ".xlsx", ".xls"))
 
-    def parse(self, file_path: str) -> list[ParsedBankTransaction]:
+    def parse(self, file_path: str) -> ParsedStatement:
         if file_path.endswith((".xlsx", ".xls")):
             df = pd.read_excel(file_path)
         else:
@@ -82,7 +82,7 @@ class GenericBankCSVParser(BaseBankParser):
             except Exception:
                 continue
 
-        return transactions
+        return ParsedStatement(transactions=transactions)
 
     def _find_column(self, cols: set, candidates: list[str]) -> Optional[str]:
         for c in candidates:
@@ -107,7 +107,7 @@ class GenericBankPDFParser(BaseBankParser):
     def can_parse(cls, file_path: str, content_sample: str = "") -> bool:
         return file_path.lower().endswith(".pdf")
 
-    def parse(self, file_path: str) -> list[ParsedBankTransaction]:
+    def parse(self, file_path: str) -> ParsedStatement:
         transactions = []
 
         with pdfplumber.open(file_path) as pdf:
@@ -128,7 +128,7 @@ class GenericBankPDFParser(BaseBankParser):
                         except Exception:
                             continue
 
-        return transactions
+        return ParsedStatement(transactions=transactions)
 
     def _parse_row(self, row: dict, headers: list[str]) -> Optional[ParsedBankTransaction]:
         # Find date

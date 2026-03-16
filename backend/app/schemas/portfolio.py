@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, date
 
 
 class BrokerageAccountCreate(BaseModel):
@@ -34,6 +34,7 @@ class HoldingResponse(BaseModel):
     quantity: float
     avg_cost_basis: float
     total_cost_basis: float
+    purchase_date: Optional[date] = None
     current_price: Optional[float] = None
     market_value: Optional[float] = None
     gain_loss: Optional[float] = None
@@ -78,6 +79,45 @@ class PortfolioSummary(BaseModel):
     total_gain_loss_pct: float
     by_platform: list[dict]
     holdings: list[HoldingResponse]
+
+
+class HoldingCreate(BaseModel):
+    brokerage_account_id: int
+    symbol: str
+    quantity: float
+    avg_cost_basis: float
+    asset_type: str = "stock"
+    currency: str = "USD"
+    purchase_date: Optional[date] = None
+
+
+class HoldingUpdate(BaseModel):
+    quantity: Optional[float] = None
+    avg_cost_basis: Optional[float] = None
+    purchase_date: Optional[date] = None
+
+
+class DividendCreate(BaseModel):
+    holding_id: int
+    amount: float
+    dividend_date: date
+    per_share: Optional[float] = None
+
+
+class AssetInfoResponse(BaseModel):
+    symbol: str
+    name: Optional[str] = None
+    current_price: Optional[float] = None
+    market_cap: Optional[float] = None
+    week_52_high: Optional[float] = None
+    week_52_low: Optional[float] = None
+    dividend_yield: Optional[float] = None
+    ex_dividend_date: Optional[str] = None
+    next_earnings_date: Optional[str] = None
+    analyst_buy: int = 0
+    analyst_hold: int = 0
+    analyst_sell: int = 0
+    insider_transactions: list[dict] = []
 
 
 class AssetResponse(BaseModel):

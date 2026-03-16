@@ -10,7 +10,7 @@ import pdfplumber
 from datetime import datetime
 from typing import Optional
 
-from app.parsers.base import BaseBankParser, ParsedBankTransaction
+from app.parsers.base import BaseBankParser, ParsedBankTransaction, ParsedStatement
 
 
 # Known KBank PDF channels — ordered by length (longest first) to avoid partial matches.
@@ -62,7 +62,7 @@ class KasikornParser(BaseBankParser):
                 pass
         return False
 
-    def parse(self, file_path: str) -> list[ParsedBankTransaction]:
+    def parse(self, file_path: str) -> ParsedStatement:
         df = pd.read_csv(file_path)
         df.columns = [c.strip().lower() for c in df.columns]
 
@@ -97,7 +97,7 @@ class KasikornParser(BaseBankParser):
             except Exception:
                 continue
 
-        return transactions
+        return ParsedStatement(transactions=transactions)
 
     def _parse_date(self, date_str: str, time_str: str) -> datetime:
         for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y"):
@@ -139,22 +139,26 @@ class KasikornPDFParser(BaseBankParser):
         # KBank PDF e-statements have "k plus" as a transaction channel or header
         return "k plus" in content or "kasikorn" in content
 
-    def parse(self, file_path: str) -> list[ParsedBankTransaction]:
+    def parse(self, file_path: str) -> ParsedStatement:
         transactions = []
+        closing_balance: Optional[float] = None
 
         with pdfplumber.open(file_path) as pdf:
             for page in pdf.pages:
                 text = page.extract_text()
                 if not text:
                     continue
-                txns = self._parse_page_text(text)
+                txns, last_balance = self._parse_page_text(text)
                 transactions.extend(txns)
+                if last_balance is not None:
+                    closing_balance = last_balance
 
-        return transactions
+        return ParsedStatement(transactions=transactions, closing_balance=closing_balance)
 
-    def _parse_page_text(self, text: str) -> list[ParsedBankTransaction]:
+    def _parse_page_text(self, text: str) -> tuple[list[ParsedBankTransaction], Optional[float]]:
         transactions = []
         prev_balance: Optional[float] = None
+        last_balance: Optional[float] = None
 
         for raw_line in text.split("\n"):
             line = raw_line.strip()
@@ -208,8 +212,9 @@ class KasikornPDFParser(BaseBankParser):
                 )
             )
             prev_balance = balance
+            last_balance = balance
 
-        return transactions
+        return transactions, last_balance
 
     def _to_float(self, value: str) -> float:
         try:

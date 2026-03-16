@@ -3,6 +3,33 @@ export interface User {
   email: string;
   full_name: string;
   is_active: boolean;
+  created_at?: string;
+  binance_api_key?: string;
+  binance_last_synced?: string;
+}
+
+export interface BrokerageAccount {
+  id: number;
+  brokerage_id: number;
+  brokerage_name: string;
+  brokerage_code: string;
+  account_identifier?: string;
+  account_name?: string;
+  cash_balance: number;
+  currency: string;
+  created_at: string;
+}
+
+export interface Bank {
+  id: number;
+  name: string;
+  code: string;
+}
+
+export interface BrokerageInfo {
+  id: number;
+  name: string;
+  code: string;
 }
 
 export interface BankAccount {
@@ -27,8 +54,24 @@ export interface Transaction {
   description?: string;
   sender?: string;
   receiver?: string;
+  reference?: string;
   bank_name?: string;
+  statement_file_name?: string;
   transaction_date: string;
+  created_at?: string;
+}
+
+export interface CategorySuggestion {
+  category_name: string;
+  display_name: string;
+  confidence: number;
+}
+
+export interface Category {
+  id: number;
+  name: string;
+  display_name: string;
+  icon?: string;
 }
 
 export interface Holding {
@@ -41,10 +84,34 @@ export interface Holding {
   quantity: number;
   avg_cost_basis: number;
   total_cost_basis: number;
+  purchase_date?: string;
   current_price?: number;
   market_value?: number;
   gain_loss?: number;
   gain_loss_pct?: number;
+}
+
+export interface AssetInfo {
+  symbol: string;
+  name?: string;
+  current_price?: number;
+  market_cap?: number;
+  week_52_high?: number;
+  week_52_low?: number;
+  dividend_yield?: number;
+  ex_dividend_date?: string;
+  next_earnings_date?: string;
+  analyst_buy: number;
+  analyst_hold: number;
+  analyst_sell: number;
+  insider_transactions: {
+    name: string;
+    title: string;
+    transaction: string;
+    shares: number;
+    value?: number;
+    date: string;
+  }[];
 }
 
 export interface PortfolioSummary {
@@ -112,4 +179,13 @@ export interface NetWorthSnapshot {
   total_investments: number;
   total_cash: number;
   net_worth: number;
+}
+
+export interface UploadFileItem {
+  file: File;
+  id: string;
+  status: "queued" | "uploading" | "processing" | "completed" | "failed";
+  statementId?: number;
+  recordsProcessed?: number;
+  errorMessage?: string;
 }
