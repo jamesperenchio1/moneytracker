@@ -141,6 +141,8 @@ export interface Dashboard {
   net_worth: number;
   total_investments: number;
   total_cash: number;
+  bank_cash?: number;
+  credit_card_debt?: number;
   monthly_spending: number;
   monthly_income: number;
   spending_breakdown: SpendingBreakdown[];

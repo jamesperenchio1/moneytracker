@@ -45,6 +45,8 @@ class AnalyticsDashboard(BaseModel):
     net_worth: float
     total_investments: float
     total_cash: float
+    bank_cash: float = 0.0          # gross bank account balances (positive only)
+    credit_card_debt: float = 0.0   # total CC outstanding (positive number = what you owe)
     monthly_spending: float
     monthly_income: float
     spending_breakdown: list[SpendingBreakdown]
