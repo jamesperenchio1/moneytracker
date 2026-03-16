@@ -36,6 +36,7 @@ import {
   getBanks,
   getBrokerages,
   getStatements,
+  deleteStatement,
   createBankAccount,
   createBrokerageAccount,
   deleteBankAccount,
@@ -706,6 +707,7 @@ function UploadHistorySection() {
   const [statements, setStatements] = useState<Statement[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "bank" | "brokerage">("all");
+  const [deleting, setDeleting] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     getStatements()
@@ -713,6 +715,23 @@ function UploadHistorySection() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Delete this statement and its transactions?")) return;
+    setDeleting((prev) => new Set(prev).add(id));
+    try {
+      await deleteStatement(id);
+      setStatements((prev) => prev.filter((s) => s.id !== id));
+    } catch {
+      // ignore
+    } finally {
+      setDeleting((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
 
   if (loading) {
     return (
@@ -847,6 +866,18 @@ function UploadHistorySection() {
                     )}
                   </div>
                 </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDelete(stmt.id); }}
+                  disabled={deleting.has(stmt.id)}
+                  className="ml-2 p-1.5 rounded-lg text-[var(--muted)] hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50 shrink-0"
+                  title="Delete statement"
+                >
+                  {deleting.has(stmt.id) ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
+                </button>
               </div>
             </div>
           ))}

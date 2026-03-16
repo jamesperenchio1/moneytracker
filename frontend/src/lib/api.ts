@@ -88,6 +88,7 @@ export const uploadStatement = (formData: FormData) =>
   });
 export const getStatements = () => api.get("/statements");
 export const getStatement = (id: number) => api.get(`/statements/${id}`);
+export const deleteStatement = (id: number) => api.delete(`/statements/${id}`);
 export const importFolder = (folder_path: string, statement_type = "bank") =>
   api.post("/statements/import-folder", { folder_path, statement_type });
 
@@ -98,5 +99,51 @@ export const getNetWorthHistory = (period?: string) =>
   api.get("/analytics/net-worth-history", { params: period ? { period } : {} });
 export const getPortfolioHistory = (period?: string) =>
   api.get("/analytics/portfolio-history", { params: period ? { period } : {} });
+
+export const streamAiInsights = async (
+  months = 3,
+  onChunk: (text: string) => void,
+  onDone: () => void,
+  onError: (err: string) => void,
+  signal?: AbortSignal,
+): Promise<void> => {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  try {
+    const res = await fetch(`/api/analytics/ai-insights?months=${months}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      onError(text || `Error ${res.status}`);
+      return;
+    }
+    const reader = res.body?.getReader();
+    if (!reader) { onError("No response body"); return; }
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const payload = line.slice(6).trim();
+          if (payload === "[DONE]") { onDone(); return; }
+          try {
+            const { text } = JSON.parse(payload);
+            if (text) onChunk(text);
+          } catch { /* skip */ }
+        }
+      }
+    }
+    onDone();
+  } catch (e: unknown) {
+    if ((e as Error)?.name === "AbortError") return;
+    onError(String(e));
+  }
+};
 
 export default api;
