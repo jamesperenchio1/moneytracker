@@ -7,6 +7,9 @@ interface StatCardProps {
   subtitle?: string;
   icon?: ReactNode;
   trend?: number;
+  gradient?: string;
+  accentColor?: string;
+  onClick?: () => void;
 }
 
 export default function StatCard({
@@ -15,12 +18,24 @@ export default function StatCard({
   subtitle,
   icon,
   trend,
+  gradient,
+  accentColor,
+  onClick,
 }: StatCardProps) {
   return (
-    <div className="rounded-xl border border-[var(--card-border)] bg-[var(--card)] p-6">
+    <div
+      onClick={onClick}
+      className={`rounded-xl border border-[var(--card-border)] p-6 transition-transform hover:scale-[1.02] ${onClick ? "cursor-pointer" : ""}`}
+      style={{
+        background: gradient || "var(--card)",
+        borderLeft: accentColor ? `3px solid ${accentColor}` : undefined,
+      }}
+    >
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm text-[var(--muted)]">{title}</span>
-        {icon && <span className="text-[var(--muted)]">{icon}</span>}
+        {icon && (
+          <span style={{ color: accentColor || "var(--muted)" }}>{icon}</span>
+        )}
       </div>
       <div className="text-2xl font-bold">{value}</div>
       {(subtitle || trend !== undefined) && (

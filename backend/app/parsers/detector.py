@@ -3,8 +3,11 @@
 from app.parsers.base import BaseBankParser, BaseBrokerageParser
 from app.parsers.banks.kasikorn import KasikornParser, KasikornPDFParser
 from app.parsers.banks.scb import SCBParser, SCBPDFParser
+from app.parsers.banks.payslip import PayslipParser
+from app.parsers.banks.krungsri_cc import KrungsriCreditCardParser
 from app.parsers.banks.generic import GenericBankCSVParser, GenericBankPDFParser
 from app.parsers.brokerages.webull import WebullParser, WebullThailandParser
+from app.parsers.brokerages.webull_pdf import WebullPDFParser
 from app.parsers.brokerages.dime import DimeParser
 from app.parsers.brokerages.generic import GenericBrokerageParser
 
@@ -13,17 +16,20 @@ from app.parsers.brokerages.generic import GenericBrokerageParser
 # PDF-specific parsers must come before their CSV counterparts so a PDF
 # content sample match goes to the PDF parser, not the CSV one.
 BANK_PARSERS: list[type[BaseBankParser]] = [
-    KasikornPDFParser,  # KBank PDF e-statements
-    SCBPDFParser,       # SCB PDF e-statements
-    KasikornParser,     # KBank CSV
-    SCBParser,          # SCB CSV
+    PayslipParser,              # Payslip PDFs (income)
+    KrungsriCreditCardParser,   # Krungsri credit card PDFs
+    KasikornPDFParser,          # KBank PDF e-statements
+    SCBPDFParser,               # SCB PDF e-statements
+    KasikornParser,             # KBank CSV
+    SCBParser,                  # SCB CSV
     GenericBankPDFParser,
     GenericBankCSVParser,
 ]
 
 BROKERAGE_PARSERS: list[type[BaseBrokerageParser]] = [
+    WebullPDFParser,         # Webull USA PDF statements
     WebullThailandParser,
-    WebullParser,
+    WebullParser,            # Webull USA CSV exports
     DimeParser,
     GenericBrokerageParser,
 ]

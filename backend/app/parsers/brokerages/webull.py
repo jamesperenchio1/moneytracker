@@ -27,6 +27,9 @@ class WebullParser(BaseBrokerageParser):
 
     @classmethod
     def can_parse(cls, file_path: str, content_sample: str = "") -> bool:
+        # PDFs are handled by WebullPDFParser — this parser only handles CSVs
+        if file_path.lower().endswith(".pdf"):
+            return False
         content = content_sample.lower()
         if "webull" in content:
             return True

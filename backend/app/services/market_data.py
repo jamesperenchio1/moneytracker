@@ -93,10 +93,10 @@ def fetch_historical_prices_sync(symbol: str, start_date: date, end_date: date =
         prices.append(
             {
                 "price_date": idx.date(),
-                "open_price": round(row["Open"], 4),
-                "high_price": round(row["High"], 4),
-                "low_price": round(row["Low"], 4),
-                "close_price": round(row["Close"], 4),
+                "open_price": float(round(row["Open"], 4)),
+                "high_price": float(round(row["High"], 4)),
+                "low_price": float(round(row["Low"], 4)),
+                "close_price": float(round(row["Close"], 4)),
                 "volume": int(row["Volume"]) if row["Volume"] else None,
             }
         )

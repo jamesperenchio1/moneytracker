@@ -10,6 +10,7 @@ app = FastAPI(
     title="MoneyTracker API",
     description="Smart Money Tracker for investments and banking in Thailand",
     version="1.0.0",
+    redirect_slashes=False,
 )
 
 app.add_middleware(

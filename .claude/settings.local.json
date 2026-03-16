@@ -47,7 +47,10 @@
       "Bash(curl -s -X POST http://localhost:8000/api/auth/login -H \"Content-Type: application/x-www-form-urlencoded\" -d \"username=testuser@gmail.com&password=testpassword123\")",
       "Bash(python3 -c \"import pdfplumber; pdf = pdfplumber.open\\(''/Users/jamesperenchio/Downloads/deposit/Unlocked PDFs/AcctSt_Apr25.pdf''\\); print\\(len\\(pdf.pages\\), ''pages''\\); pdf.close\\(\\)\")",
       "Bash(xargs ls)",
-      "Bash(git add .claude/settings.local.json)"
+      "Bash(git add .claude/settings.local.json)",
+      "Bash(git push -u origin claude/adoring-tharp)",
+      "Bash(gh pr:*)",
+      "Bash(psql postgresql://moneytracker:moneytracker@localhost:5432/moneytracker -c \"DELETE FROM portfolio_transactions; DELETE FROM holdings; SELECT ''holdings: '' || COUNT\\(*\\) FROM holdings;\")"
     ]
   }
 }

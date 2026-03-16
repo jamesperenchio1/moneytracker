@@ -12,7 +12,7 @@ from app.schemas.bank import BankAccountCreate, BankAccountResponse, BankRespons
 router = APIRouter(prefix="/banks", tags=["banks"])
 
 
-@router.get("/", response_model=list[BankResponse])
+@router.get("", response_model=list[BankResponse])
 async def list_banks(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Bank).order_by(Bank.name))
     return result.scalars().all()
