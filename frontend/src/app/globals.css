@@ -8,7 +8,19 @@
   --accent: #3b82f6;
   --accent-green: #22c55e;
   --accent-red: #ef4444;
+  --accent-amber: #f59e0b;
+  --accent-purple: #8b5cf6;
+  --accent-pink: #ec4899;
+  --accent-cyan: #06b6d4;
+  --accent-orange: #f97316;
   --muted: #737373;
+
+  --gradient-blue: linear-gradient(135deg, #1e3a5f 0%, #0f1d30 100%);
+  --gradient-green: linear-gradient(135deg, #1a3a2a 0%, #0f2018 100%);
+  --gradient-purple: linear-gradient(135deg, #2d1b4e 0%, #1a1030 100%);
+  --gradient-amber: linear-gradient(135deg, #3d2e0a 0%, #1f1705 100%);
+  --gradient-pink: linear-gradient(135deg, #3d1b2e 0%, #1f0d17 100%);
+  --gradient-cyan: linear-gradient(135deg, #0a2d33 0%, #051a1f 100%);
 }
 
 body {
@@ -16,3 +28,9 @@ body {
   color: var(--foreground);
   font-family: system-ui, -apple-system, sans-serif;
 }
+
+@keyframes progress-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.animate-progress { animation: progress-pulse 1.5s ease-in-out infinite; }

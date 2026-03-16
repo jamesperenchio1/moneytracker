@@ -46,6 +46,7 @@ export default function PortfolioChart({ data, currency = "USD" }: Props) {
             background: "#1a1a1a",
             border: "1px solid #333",
             borderRadius: "8px",
+            color: "#ededed",
           }}
           formatter={(value: number) => formatCurrency(value, currency)}
         />

@@ -28,9 +28,16 @@ const COLORS = [
 interface Props {
   data: SpendingBreakdown[];
   currency?: string;
+  onCategoryClick?: (categoryName: string) => void;
+  selectedCategory?: string | null;
 }
 
-export default function SpendingChart({ data, currency = "THB" }: Props) {
+export default function SpendingChart({
+  data,
+  currency = "THB",
+  onCategoryClick,
+  selectedCategory,
+}: Props) {
   if (!data.length) {
     return (
       <div className="flex items-center justify-center h-64 text-[var(--muted)]">
@@ -51,9 +58,29 @@ export default function SpendingChart({ data, currency = "THB" }: Props) {
           outerRadius={100}
           innerRadius={60}
           paddingAngle={2}
+          style={{ cursor: onCategoryClick ? "pointer" : "default" }}
+          onClick={(entry) => {
+            if (onCategoryClick && entry?.category) {
+              onCategoryClick(entry.category);
+            }
+          }}
         >
-          {data.map((_, index) => (
-            <Cell key={index} fill={COLORS[index % COLORS.length]} />
+          {data.map((entry, index) => (
+            <Cell
+              key={index}
+              fill={COLORS[index % COLORS.length]}
+              opacity={
+                selectedCategory
+                  ? entry.category === selectedCategory
+                    ? 1
+                    : 0.25
+                  : 0.85
+              }
+              stroke={
+                entry.category === selectedCategory ? "#fff" : "#0a0a0a"
+              }
+              strokeWidth={entry.category === selectedCategory ? 2 : 1}
+            />
           ))}
         </Pie>
         <Tooltip
@@ -61,10 +88,18 @@ export default function SpendingChart({ data, currency = "THB" }: Props) {
             background: "#1a1a1a",
             border: "1px solid #333",
             borderRadius: "8px",
+            color: "#ededed",
           }}
           formatter={(value: number) => formatCurrency(value, currency)}
         />
-        <Legend />
+        <Legend
+          onClick={(entry) => {
+            if (onCategoryClick && entry?.value) {
+              onCategoryClick(entry.value as string);
+            }
+          }}
+          wrapperStyle={{ cursor: onCategoryClick ? "pointer" : "default" }}
+        />
       </PieChart>
     </ResponsiveContainer>
   );
