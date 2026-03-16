@@ -114,6 +114,10 @@ def _process_bank_statement(stmt: Statement, db: Session) -> int:
     parser = detect_bank_parser(stmt.file_path, stmt.institution_code)
     parsed_result = parser.parse(stmt.file_path)
 
+    # Persist detected institution code so future reprocessing always routes correctly
+    if not stmt.institution_code and parser.institution_code:
+        stmt.institution_code = parser.institution_code
+
     # Load category map for auto-categorization
     categories = {c.name.value: c for c in db.execute(select(Category)).scalars().all()}
 
