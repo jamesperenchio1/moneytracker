@@ -94,6 +94,27 @@ export interface Dashboard {
   }[];
 }
 
+export interface AuditEntry {
+  step: string;
+  ts: string;
+  level: "info" | "warn" | "error";
+  detail: string;
+  index?: number;
+  date?: string;
+  amount?: number;
+  txn_type?: string;
+  description?: string;
+  category?: string;
+  action?: string;
+  symbol?: string;
+  quantity?: number;
+  price?: number;
+  skipped?: boolean;
+  skip_reason?: string;
+  expected?: string;
+  parser_name?: string;
+}
+
 export interface Statement {
   id: number;
   statement_type: string;
@@ -102,6 +123,7 @@ export interface Statement {
   file_type: string;
   status: string;
   error_message?: string;
+  audit_log?: AuditEntry[];
   records_processed: number;
   uploaded_at: string;
   processed_at?: string;

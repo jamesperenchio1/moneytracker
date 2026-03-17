@@ -53,6 +53,11 @@ CATEGORY_KEYWORDS: dict[CategoryName, list[str]] = {
     CategoryName.INVESTMENT: [
         "invest", "stock", "fund", "mutual fund", "กองทุน",
     ],
+    CategoryName.CREDIT_CARD_PAYMENT: [
+        "credit card", "credit card payment", "cc payment", "creditcard",
+        "visa payment", "mastercard payment", "amex payment",
+        "บัตรเครดิต", "ชำระบัตร", "ชำระค่าบัตร",
+    ],
 }
 
 
