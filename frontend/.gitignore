@@ -1,0 +1,13 @@
+# Next.js
+.next/
+out/
+
+# Dependencies
+node_modules/
+
+# Playwright
+test-results/
+playwright-report/
+
+# Misc
+.env*.local
