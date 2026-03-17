@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 # Sync engine for Celery workers
-sync_engine = create_engine(settings.DATABASE_URL_SYNC, pool_size=5)
+sync_engine = create_engine(settings.database_url_sync, pool_size=5)
 
 
 def get_sync_session() -> Session:

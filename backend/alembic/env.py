@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.core.database import Base
 from app.models import *  # noqa: F401, F403 — import all models so Alembic sees them
+from app.core.config import get_settings
 
 config = context.config
 
@@ -16,10 +17,8 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Override URL from environment if available
-db_url = os.environ.get("DATABASE_URL_SYNC")
-if db_url:
-    config.set_main_option("sqlalchemy.url", db_url)
+# Resolve DB URL via settings so Supabase/Vercel env vars are honoured
+config.set_main_option("sqlalchemy.url", get_settings().database_url_sync)
 
 
 def run_migrations_offline():
