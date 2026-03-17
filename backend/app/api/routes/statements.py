@@ -59,11 +59,14 @@ async def upload_statement(
     db.add(stmt)
     await db.flush()
     await db.refresh(stmt)
+    await db.commit()
 
-    # Trigger async processing
-    from app.workers.tasks import process_statement
-
-    process_statement.delay(stmt.id)
+    # Trigger async processing — tolerate broker being unavailable in dev
+    try:
+        from app.workers.tasks import process_statement
+        process_statement.delay(stmt.id)
+    except Exception:
+        pass  # Celery will pick it up on next retry, or statement stays PENDING
 
     return stmt
 

@@ -59,7 +59,10 @@ function UploadPanel({
   };
 
   return (
-    <div className="rounded-xl border border-[var(--card-border)] bg-[var(--card)] p-5 space-y-4">
+    <div
+      data-testid={`upload-panel-${statementType}`}
+      className="rounded-xl border border-[var(--card-border)] bg-[var(--card)] p-5 space-y-4"
+    >
       {/* Panel header */}
       <div className="flex items-center gap-3">
         <div className="p-2 rounded-lg bg-[var(--accent)]/10 text-[var(--accent)]">
