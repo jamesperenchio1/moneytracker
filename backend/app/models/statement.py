@@ -8,6 +8,7 @@ import enum
 class StatementType(str, enum.Enum):
     BANK = "bank"
     BROKERAGE = "brokerage"
+    CREDIT_CARD = "credit_card"
 
 
 class StatementStatus(str, enum.Enum):
@@ -29,6 +30,7 @@ class Statement(Base):
     file_type: Mapped[str] = mapped_column(String(10), nullable=False)  # csv, pdf, xlsx
     status: Mapped[StatementStatus] = mapped_column(SQLEnum(StatementStatus), default=StatementStatus.PENDING)
     error_message: Mapped[str] = mapped_column(Text, nullable=True)
+    audit_log: Mapped[str] = mapped_column(Text, nullable=True)  # JSON array of processing steps
     records_processed: Mapped[int] = mapped_column(Integer, default=0)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)

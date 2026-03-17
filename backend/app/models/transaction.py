@@ -24,6 +24,7 @@ class CategoryName(str, enum.Enum):
     HEALTHCARE = "healthcare"
     EDUCATION = "education"
     INVESTMENT = "investment"
+    CREDIT_CARD_PAYMENT = "credit_card_payment"
     OTHER = "other"
 
 

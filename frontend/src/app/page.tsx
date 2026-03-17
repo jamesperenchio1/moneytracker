@@ -414,45 +414,37 @@ export default function Home() {
 
         {tab === "upload" && (
           <div className="max-w-2xl mx-auto space-y-6">
-            <div className="rounded-xl border border-[var(--card-border)] bg-[var(--card)] p-6">
-              <h3 className="font-medium mb-4">Upload Statements</h3>
-              <p className="text-sm text-[var(--muted)] mb-4">
-                Upload bank or brokerage statements. Supported formats: CSV,
-                Excel (.xlsx), PDF. The system will auto-detect the institution
-                and parse transactions.
+            <div>
+              <h3 className="font-medium mb-1">Upload Statements</h3>
+              <p className="text-sm text-[var(--muted)]">
+                Upload each statement type separately. After uploading, an audit
+                trail shows exactly what the parser found, what category each
+                transaction was assigned, and flags any CC payoff debits so you
+                can verify your bank payment matches your CC balance.
               </p>
-              <FileUpload onUploadComplete={loadData} />
             </div>
 
-            <div className="rounded-xl border border-[var(--card-border)] bg-[var(--card)] p-6">
-              <h3 className="font-medium mb-4">Supported Institutions</h3>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <h4 className="font-medium text-[var(--accent)] mb-2">
-                    Banks (Thailand)
-                  </h4>
-                  <ul className="space-y-1 text-[var(--muted)]">
-                    <li>Kasikorn Bank (KBank)</li>
-                    <li>SCB (Siam Commercial)</li>
-                    <li>Bangkok Bank</li>
-                    <li>Krungsri</li>
-                    <li>Krungthai</li>
-                    <li>TTB</li>
-                    <li>Generic CSV/Excel/PDF</li>
-                  </ul>
-                </div>
-                <div>
-                  <h4 className="font-medium text-[var(--accent)] mb-2">
-                    Brokerages
-                  </h4>
-                  <ul className="space-y-1 text-[var(--muted)]">
-                    <li>Webull USA</li>
-                    <li>Webull Thailand</li>
-                    <li>Dime</li>
-                    <li>Generic CSV/Excel</li>
-                  </ul>
-                </div>
-              </div>
+            <FileUpload onUploadComplete={loadData} />
+
+            <div className="rounded-xl border border-[var(--card-border)] bg-[var(--card)] p-5 text-sm">
+              <h4 className="font-medium mb-3">How CC reconciliation works</h4>
+              <ol className="space-y-2 text-[var(--muted)] list-decimal list-inside">
+                <li>
+                  Upload your <span className="text-white">bank statement</span> — the audit
+                  trail will flag your end-of-month CC payoff debit and show the
+                  total amount paid.
+                </li>
+                <li>
+                  Upload your{" "}
+                  <span className="text-white">credit card statement</span> — the audit
+                  trail will list every charge and show the total, which should
+                  match the bank payoff.
+                </li>
+                <li>
+                  Compare the two totals in the audit trails to confirm they
+                  balance.
+                </li>
+              </ol>
             </div>
           </div>
         )}

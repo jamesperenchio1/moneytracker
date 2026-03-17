@@ -1,6 +1,8 @@
 """Celery background tasks for data processing."""
 
+import json
 import logging
+import os
 from datetime import datetime, date, timedelta, timezone
 
 from sqlalchemy import create_engine, select, and_
@@ -9,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.workers.celery_app import celery_app
 from app.core.config import get_settings
 from app.models.statement import Statement, StatementType, StatementStatus
-from app.models.transaction import Transaction, TransactionType, Category
+from app.models.transaction import Transaction, TransactionType, Category, CategoryName
 from app.models.bank import Bank, BankAccount, BankName
 from app.models.brokerage import BrokerageAccount
 from app.models.portfolio import Holding, PortfolioTransaction, TradeAction
@@ -29,6 +31,16 @@ def get_sync_session() -> Session:
     return Session(sync_engine)
 
 
+def _now_ts() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _audit_entry(step: str, detail: str, level: str = "info", **kwargs) -> dict:
+    entry = {"step": step, "ts": _now_ts(), "level": level, "detail": detail}
+    entry.update({k: v for k, v in kwargs.items() if v is not None})
+    return entry
+
+
 @celery_app.task(bind=True, max_retries=3)
 def process_statement(self, statement_id: int):
     """Process an uploaded statement file."""
@@ -40,36 +52,67 @@ def process_statement(self, statement_id: int):
         stmt.status = StatementStatus.PROCESSING
         db.commit()
 
+        audit: list[dict] = []
+
+        # Log file receipt
+        try:
+            file_size_kb = round(os.path.getsize(stmt.file_path) / 1024, 1)
+        except OSError:
+            file_size_kb = 0
+        audit.append(_audit_entry(
+            "file_received",
+            f"{stmt.file_name} ({file_size_kb} KB) — type: {stmt.statement_type.value}",
+        ))
+
         try:
             if stmt.statement_type == StatementType.BANK:
-                count = _process_bank_statement(stmt, db)
+                count = _process_bank_statement(stmt, db, audit)
+            elif stmt.statement_type == StatementType.CREDIT_CARD:
+                count = _process_credit_card_statement(stmt, db, audit)
             elif stmt.statement_type == StatementType.BROKERAGE:
-                count = _process_brokerage_statement(stmt, db)
+                count = _process_brokerage_statement(stmt, db, audit)
             else:
                 raise ValueError(f"Unknown statement type: {stmt.statement_type}")
 
+            audit.append(_audit_entry(
+                "summary",
+                f"Processing complete — {count} record(s) saved",
+            ))
             stmt.status = StatementStatus.COMPLETED
             stmt.records_processed = count
             stmt.processed_at = datetime.now(timezone.utc)
+            stmt.audit_log = json.dumps(audit)
             db.commit()
 
         except Exception as exc:
             db.rollback()
+            audit.append(_audit_entry("error", str(exc)[:300], level="error"))
             stmt.status = StatementStatus.FAILED
             stmt.error_message = str(exc)[:500]
+            stmt.audit_log = json.dumps(audit)
             db.commit()
             raise self.retry(exc=exc, countdown=60)
 
 
-def _get_or_create_bank_account(stmt: Statement, parser_institution_code: str, db: Session) -> BankAccount:
-    """Resolve the correct BankAccount for this statement, auto-creating if needed.
+# ---------------------------------------------------------------------------
+# CC-payment keywords used to flag bank-side payoff transactions
+# ---------------------------------------------------------------------------
+_CC_PAYMENT_KEYWORDS = [
+    "credit card", "creditcard", "cc payment", "visa payment",
+    "mastercard payment", "amex payment",
+    "บัตรเครดิต", "ชำระบัตร", "ชำระค่าบัตร",
+]
 
-    Priority:
-    1. stmt.institution_code (explicitly set by caller)
-    2. Parser's institution_code (auto-detected)
-    Falls back to creating a new account linked to the matching Bank row.
-    """
-    # Map parser institution codes to BankName enum values
+
+def _is_cc_payment(description: str) -> bool:
+    if not description:
+        return False
+    desc = description.lower()
+    return any(kw in desc for kw in _CC_PAYMENT_KEYWORDS)
+
+
+def _get_or_create_bank_account(stmt: Statement, parser_institution_code: str, db: Session) -> BankAccount:
+    """Resolve the correct BankAccount for this statement, auto-creating if needed."""
     _INSTITUTION_TO_BANK = {
         "kasikorn": BankName.KASIKORN,
         "kasikorn_pdf": BankName.KASIKORN,
@@ -82,17 +125,14 @@ def _get_or_create_bank_account(stmt: Statement, parser_institution_code: str, d
     code = stmt.institution_code or parser_institution_code
     bank_name = _INSTITUTION_TO_BANK.get(code, BankName.OTHER)
 
-    # Find the Bank row
     bank = db.execute(select(Bank).where(Bank.code == bank_name)).scalars().first()
 
-    # Find existing account for this user + bank
     query = select(BankAccount).where(BankAccount.user_id == stmt.user_id)
     if bank:
         query = query.where(BankAccount.bank_id == bank.id)
     account = db.execute(query).scalars().first()
 
     if not account:
-        # Auto-create a bank account for this institution
         account = BankAccount(
             user_id=stmt.user_id,
             bank_id=bank.id if bank else None,
@@ -107,22 +147,71 @@ def _get_or_create_bank_account(stmt: Statement, parser_institution_code: str, d
     return account
 
 
-def _process_bank_statement(stmt: Statement, db: Session) -> int:
+def _process_bank_statement(stmt: Statement, db: Session, audit: list[dict]) -> int:
     """Parse bank statement and insert transactions."""
     parser = detect_bank_parser(stmt.file_path, stmt.institution_code)
+
+    audit.append(_audit_entry(
+        "parser_detected",
+        f"Using {parser.__class__.__name__}",
+        parser_name=parser.__class__.__name__,
+        expected=(
+            "CSV/Excel with columns: date, description, debit, credit, balance"
+            if "pdf" not in parser.__class__.__name__.lower()
+            else "PDF bank statement — transaction history table"
+        ),
+    ))
+
     parsed_txns = parser.parse(stmt.file_path)
+    audit.append(_audit_entry(
+        "parse_complete",
+        f"Extracted {len(parsed_txns)} row(s) from file",
+    ))
 
-    # Load category map for auto-categorization
     categories = {c.name.value: c for c in db.execute(select(Category)).scalars().all()}
-
-    # Get or auto-create the bank account for this statement's institution
     account = _get_or_create_bank_account(stmt, parser.institution_code, db)
 
+    audit.append(_audit_entry(
+        "account_resolved",
+        f"Bank account: {account.account_name or 'account #' + str(account.id)} (id={account.id})",
+    ))
+
     count = 0
-    for ptxn in parsed_txns:
-        # Auto-categorize
+    cc_payoff_total = 0.0
+
+    for i, ptxn in enumerate(parsed_txns, 1):
         cat_name = infer_category(ptxn.description)
         category = categories.get(cat_name.value) if cat_name else None
+
+        is_cc = _is_cc_payment(ptxn.description or "")
+        if is_cc:
+            cc_payoff_total += ptxn.amount
+            audit.append(_audit_entry(
+                "cc_payment_detected",
+                (
+                    f"Row {i}: CC payoff debit of ฿{ptxn.amount:,.2f} "
+                    f"on {ptxn.transaction_date.date()} — "
+                    f'"{ptxn.description}" — this matches your monthly credit card payment'
+                ),
+                level="warn",
+                index=i,
+                date=str(ptxn.transaction_date.date()),
+                amount=ptxn.amount,
+                txn_type=ptxn.transaction_type,
+                description=ptxn.description,
+                category=cat_name.value if cat_name else None,
+            ))
+        else:
+            audit.append(_audit_entry(
+                "row",
+                f"Row {i}: {ptxn.transaction_type} ฿{ptxn.amount:,.2f} — {ptxn.description or '(no description)'}",
+                index=i,
+                date=str(ptxn.transaction_date.date()),
+                amount=ptxn.amount,
+                txn_type=ptxn.transaction_type,
+                description=ptxn.description,
+                category=cat_name.value if cat_name else None,
+            ))
 
         txn = Transaction(
             bank_account_id=account.id,
@@ -140,22 +229,188 @@ def _process_bank_statement(stmt: Statement, db: Session) -> int:
         db.add(txn)
         count += 1
 
-        # Update account balance
         if ptxn.transaction_type == "credit":
             account.balance = float(account.balance or 0) + ptxn.amount
         elif ptxn.transaction_type == "debit":
             account.balance = float(account.balance or 0) - ptxn.amount
 
+    if cc_payoff_total > 0:
+        audit.append(_audit_entry(
+            "cc_payment_summary",
+            f"Total CC payoff found in this bank statement: ฿{cc_payoff_total:,.2f} — "
+            "upload your credit card statement to see the individual charges that make up this total",
+            level="warn",
+        ))
+
     db.commit()
     return count
 
 
-def _process_brokerage_statement(stmt: Statement, db: Session) -> int:
+def _process_credit_card_statement(stmt: Statement, db: Session, audit: list[dict]) -> int:
+    """Parse a credit card statement — reuses bank parsers, tags CC payoff debit."""
+    parser = detect_bank_parser(stmt.file_path, stmt.institution_code)
+
+    audit.append(_audit_entry(
+        "parser_detected",
+        f"Using {parser.__class__.__name__} (credit-card mode)",
+        parser_name=parser.__class__.__name__,
+        expected=(
+            "Credit card statement CSV/Excel: date, description, amount columns. "
+            "Charges are debits; payments/credits reduce the balance."
+        ),
+    ))
+
+    parsed_txns = parser.parse(stmt.file_path)
+    audit.append(_audit_entry(
+        "parse_complete",
+        f"Extracted {len(parsed_txns)} row(s) from credit card statement",
+    ))
+
+    categories = {c.name.value: c for c in db.execute(select(Category)).scalars().all()}
+
+    # CC gets its own bank account entry labelled "Credit Card"
+    account = _get_or_create_cc_account(stmt, parser.institution_code, db)
+    audit.append(_audit_entry(
+        "account_resolved",
+        f"Credit card account: {account.account_name or 'cc account #' + str(account.id)} (id={account.id})",
+    ))
+
+    count = 0
+    total_charges = 0.0
+    total_payments = 0.0
+
+    for i, ptxn in enumerate(parsed_txns, 1):
+        cat_name = infer_category(ptxn.description)
+        # Payments back to the card (credits) are flagged as CC payment category
+        if ptxn.transaction_type == "credit":
+            cat_name = CategoryName.CREDIT_CARD_PAYMENT
+        category = categories.get(cat_name.value) if cat_name else None
+
+        if ptxn.transaction_type == "credit":
+            total_payments += ptxn.amount
+            audit.append(_audit_entry(
+                "cc_payment_received",
+                f"Row {i}: Payment received ฿{ptxn.amount:,.2f} on {ptxn.transaction_date.date()} — "
+                f'"{ptxn.description or "(payment)"}"',
+                level="warn",
+                index=i,
+                date=str(ptxn.transaction_date.date()),
+                amount=ptxn.amount,
+                txn_type=ptxn.transaction_type,
+                description=ptxn.description,
+                category=cat_name.value if cat_name else None,
+            ))
+        else:
+            total_charges += ptxn.amount
+            audit.append(_audit_entry(
+                "row",
+                f"Row {i}: Charge ฿{ptxn.amount:,.2f} — {ptxn.description or '(no description)'}",
+                index=i,
+                date=str(ptxn.transaction_date.date()),
+                amount=ptxn.amount,
+                txn_type=ptxn.transaction_type,
+                description=ptxn.description,
+                category=cat_name.value if cat_name else None,
+            ))
+
+        txn = Transaction(
+            bank_account_id=account.id,
+            statement_id=stmt.id,
+            transaction_type=TransactionType(ptxn.transaction_type),
+            amount=ptxn.amount,
+            currency=ptxn.currency,
+            description=ptxn.description,
+            sender=ptxn.sender,
+            receiver=ptxn.receiver,
+            reference=ptxn.reference,
+            category_id=category.id if category else None,
+            transaction_date=ptxn.transaction_date,
+        )
+        db.add(txn)
+        count += 1
+
+        if ptxn.transaction_type == "credit":
+            account.balance = float(account.balance or 0) - ptxn.amount  # payment reduces CC balance
+        elif ptxn.transaction_type == "debit":
+            account.balance = float(account.balance or 0) + ptxn.amount  # charge increases CC balance
+
+    # Summary for CC statement
+    net_balance = total_charges - total_payments
+    audit.append(_audit_entry(
+        "cc_statement_summary",
+        f"Total charges: ฿{total_charges:,.2f} | Payments received: ฿{total_payments:,.2f} | "
+        f"Net balance change: ฿{net_balance:,.2f} — "
+        "Cross-check: the payment received here should match the debit in your bank statement",
+        level="warn" if total_payments == 0 else "info",
+    ))
+
+    db.commit()
+    return count
+
+
+def _get_or_create_cc_account(stmt: Statement, parser_institution_code: str, db: Session) -> BankAccount:
+    """Find or create a dedicated credit-card BankAccount for this user."""
+    _INSTITUTION_TO_BANK = {
+        "kasikorn": BankName.KASIKORN,
+        "kasikorn_pdf": BankName.KASIKORN,
+        "scb": BankName.SCB,
+        "scb_pdf": BankName.SCB,
+        "generic": BankName.OTHER,
+        "generic_pdf": BankName.OTHER,
+    }
+
+    code = stmt.institution_code or parser_institution_code
+    bank_name = _INSTITUTION_TO_BANK.get(code, BankName.OTHER)
+    bank = db.execute(select(Bank).where(Bank.code == bank_name)).scalars().first()
+
+    # Look for an account whose name contains "credit card" or "cc" for this user+bank
+    query = (
+        select(BankAccount)
+        .where(BankAccount.user_id == stmt.user_id)
+    )
+    if bank:
+        query = query.where(BankAccount.bank_id == bank.id)
+    accounts = db.execute(query).scalars().all()
+
+    for acc in accounts:
+        name = (acc.account_name or "").lower()
+        if "credit" in name or " cc" in name:
+            return acc
+
+    # Auto-create a credit card account
+    cc_name = f"{bank.name if bank else 'Unknown'} Credit Card"
+    account = BankAccount(
+        user_id=stmt.user_id,
+        bank_id=bank.id if bank else None,
+        account_name=cc_name,
+        currency="THB",
+        balance=0,
+    )
+    db.add(account)
+    db.flush()
+    logger.info(f"Auto-created CC BankAccount '{cc_name}' for user {stmt.user_id}")
+    return account
+
+
+def _process_brokerage_statement(stmt: Statement, db: Session, audit: list[dict]) -> int:
     """Parse brokerage statement, insert transactions, and update holdings."""
     parser = detect_brokerage_parser(stmt.file_path, stmt.institution_code)
-    parsed_txns = parser.parse(stmt.file_path)
 
-    # Get brokerage account
+    audit.append(_audit_entry(
+        "parser_detected",
+        f"Using {parser.__class__.__name__}",
+        parser_name=parser.__class__.__name__,
+        expected=(
+            "Brokerage CSV/Excel: date, action (buy/sell/dividend/…), symbol, quantity, price, total, fees"
+        ),
+    ))
+
+    parsed_txns = parser.parse(stmt.file_path)
+    audit.append(_audit_entry(
+        "parse_complete",
+        f"Extracted {len(parsed_txns)} row(s) from brokerage statement",
+    ))
+
     account = db.execute(
         select(BrokerageAccount).where(BrokerageAccount.user_id == stmt.user_id)
     ).scalars().first()
@@ -163,11 +418,15 @@ def _process_brokerage_statement(stmt: Statement, db: Session) -> int:
     if not account:
         raise ValueError("No brokerage account found for user. Create one first.")
 
+    audit.append(_audit_entry(
+        "account_resolved",
+        f"Brokerage account: {account.account_name or 'account #' + str(account.id)} (id={account.id})",
+    ))
+
     count = 0
     symbols_to_fetch = set()
 
-    for ptxn in parsed_txns:
-        # Get or create asset
+    for i, ptxn in enumerate(parsed_txns, 1):
         asset = None
         if ptxn.symbol:
             asset = db.execute(
@@ -178,10 +437,33 @@ def _process_brokerage_statement(stmt: Statement, db: Session) -> int:
                 asset = Asset(symbol=ptxn.symbol.upper(), name=ptxn.symbol.upper())
                 db.add(asset)
                 db.flush()
+                audit.append(_audit_entry(
+                    "new_asset",
+                    f"New asset created: {ptxn.symbol.upper()} — historical prices will be fetched",
+                    level="warn",
+                    symbol=ptxn.symbol.upper(),
+                ))
 
             symbols_to_fetch.add((asset.id, ptxn.symbol.upper()))
 
-        # Create portfolio transaction
+        audit.append(_audit_entry(
+            "row",
+            (
+                f"Row {i}: {ptxn.action.upper()} "
+                + (f"{ptxn.symbol} " if ptxn.symbol else "")
+                + (f"qty={ptxn.quantity} @ ${ptxn.price}" if ptxn.quantity and ptxn.price else "")
+                + f" total=${ptxn.total_amount}"
+                + (f" fees=${ptxn.fees}" if ptxn.fees else "")
+            ),
+            index=i,
+            date=str(ptxn.transaction_date.date()),
+            amount=ptxn.total_amount,
+            action=ptxn.action,
+            symbol=ptxn.symbol,
+            quantity=ptxn.quantity,
+            price=ptxn.price,
+        ))
+
         portfolio_txn = PortfolioTransaction(
             brokerage_account_id=account.id,
             asset_id=asset.id if asset else None,
@@ -198,13 +480,11 @@ def _process_brokerage_statement(stmt: Statement, db: Session) -> int:
         db.add(portfolio_txn)
         count += 1
 
-        # Update holdings
         if asset and ptxn.action in ("buy", "sell", "transfer_in", "transfer_out"):
             _update_holding(account.id, asset.id, ptxn, db)
 
     db.commit()
 
-    # Trigger historical price fetching for new symbols
     for asset_id, symbol in symbols_to_fetch:
         fetch_historical_prices_for_asset.delay(asset_id, symbol)
 
@@ -243,7 +523,6 @@ def _update_holding(account_id: int, asset_id: int, ptxn, db: Session):
         holding.avg_cost_basis = new_cost / new_qty if new_qty > 0 else 0
     elif ptxn.action in ("sell", "transfer_out"):
         new_qty = max(current_qty - qty, 0)
-        # Reduce cost basis proportionally
         if current_qty > 0:
             cost_reduction = (qty / current_qty) * current_cost
             holding.total_cost_basis = current_cost - cost_reduction
@@ -278,9 +557,7 @@ def update_all_asset_prices():
 @celery_app.task
 def fetch_historical_prices_for_asset(asset_id: int, symbol: str):
     """Fetch historical prices for a specific asset."""
-    from sqlalchemy.dialects.postgresql import insert as pg_insert
-
-    start_date = date.today() - timedelta(days=365 * 2)  # 2 years of history
+    start_date = date.today() - timedelta(days=365 * 2)
     prices = fetch_historical_prices_sync(symbol, start_date)
 
     if not prices:
@@ -310,7 +587,6 @@ def fetch_missing_historical_prices():
     with get_sync_session() as db:
         assets = db.execute(select(Asset)).scalars().all()
         for asset in assets:
-            # Check if we have recent data
             latest = db.execute(
                 select(HistoricalPrice.price_date)
                 .where(HistoricalPrice.asset_id == asset.id)

@@ -55,6 +55,7 @@ def seed():
             {"name": CategoryName.HEALTHCARE, "display_name": "Healthcare", "icon": "heart-pulse"},
             {"name": CategoryName.EDUCATION, "display_name": "Education", "icon": "graduation-cap"},
             {"name": CategoryName.INVESTMENT, "display_name": "Investments", "icon": "chart-line"},
+            {"name": CategoryName.CREDIT_CARD_PAYMENT, "display_name": "Credit Card Payment", "icon": "credit-card"},
             {"name": CategoryName.OTHER, "display_name": "Other", "icon": "ellipsis"},
         ]
         for c in categories:

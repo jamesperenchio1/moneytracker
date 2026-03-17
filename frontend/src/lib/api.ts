@@ -56,6 +56,7 @@ export const uploadStatement = (formData: FormData) =>
     headers: { "Content-Type": "multipart/form-data" },
   });
 export const getStatements = () => api.get("/statements/");
+export const getStatement = (id: number) => api.get(`/statements/${id}`);
 
 // Analytics
 export const getDashboard = (months?: number) =>
