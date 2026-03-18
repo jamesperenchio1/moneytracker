@@ -14,6 +14,8 @@ class MonthlyTrend(BaseModel):
     month: str
     income: float
     expenses: float
+    transfers_in: float = 0
+    transfers_out: float = 0
     net: float
 
 
@@ -47,6 +49,8 @@ class AnalyticsDashboard(BaseModel):
     total_cash: float
     monthly_spending: float
     monthly_income: float
+    monthly_transfers_in: float = 0
+    monthly_transfers_out: float = 0
     spending_breakdown: list[SpendingBreakdown]
     monthly_trends: list[MonthlyTrend]
     recurring_payments: list[RecurringPayment]

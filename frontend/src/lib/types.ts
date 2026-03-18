@@ -67,6 +67,8 @@ export interface MonthlyTrend {
   month: string;
   income: number;
   expenses: number;
+  transfers_in: number;
+  transfers_out: number;
   net: number;
 }
 
@@ -76,6 +78,8 @@ export interface Dashboard {
   total_cash: number;
   monthly_spending: number;
   monthly_income: number;
+  monthly_transfers_in: number;
+  monthly_transfers_out: number;
   spending_breakdown: SpendingBreakdown[];
   monthly_trends: MonthlyTrend[];
   recurring_payments: {

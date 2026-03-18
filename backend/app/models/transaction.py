@@ -18,7 +18,9 @@ class CategoryName(str, enum.Enum):
     UTILITIES = "utilities"
     SUBSCRIPTIONS = "subscriptions"
     INCOME = "income"
-    TRANSFERS = "transfers"
+    TRANSFERS = "transfers"          # legacy / inter-account (no clear direction)
+    TRANSFER_IN = "transfer_in"      # someone sent money TO you
+    TRANSFER_OUT = "transfer_out"    # you sent money TO someone
     SHOPPING = "shopping"
     ENTERTAINMENT = "entertainment"
     HEALTHCARE = "healthcare"

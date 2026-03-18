@@ -375,16 +375,26 @@ export default function Home() {
 
         {tab === "banking" && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard
                 title="Total Cash"
                 value={formatCurrency(dashboard?.total_cash ?? 0, "THB")}
                 icon={<Building2 className="w-5 h-5" />}
               />
               <StatCard
-                title="Monthly Burn Rate"
-                value={formatCurrency(dashboard?.monthly_spending ?? 0, "THB")}
+                title="Monthly Income"
+                value={formatCurrency(dashboard?.monthly_income ?? 0, "THB")}
                 subtitle={`Net: ${formatCurrency((dashboard?.monthly_income ?? 0) - (dashboard?.monthly_spending ?? 0), "THB")}`}
+              />
+              <StatCard
+                title="Monthly Spending"
+                value={formatCurrency(dashboard?.monthly_spending ?? 0, "THB")}
+                icon={<CreditCard className="w-5 h-5" />}
+              />
+              <StatCard
+                title="Transfers This Month"
+                value={formatCurrency(dashboard?.monthly_transfers_in ?? 0, "THB")}
+                subtitle={`Out: ${formatCurrency(dashboard?.monthly_transfers_out ?? 0, "THB")}`}
               />
             </div>
 

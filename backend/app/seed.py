@@ -9,7 +9,7 @@ from app.models.brokerage import Brokerage, BrokerageName
 from app.models.transaction import Category, CategoryName
 
 settings = get_settings()
-engine = create_engine(settings.DATABASE_URL_SYNC)
+engine = create_engine(settings.database_url_sync)
 
 
 def seed():
@@ -50,6 +50,8 @@ def seed():
             {"name": CategoryName.SUBSCRIPTIONS, "display_name": "Subscriptions", "icon": "refresh"},
             {"name": CategoryName.INCOME, "display_name": "Income", "icon": "wallet"},
             {"name": CategoryName.TRANSFERS, "display_name": "Transfers", "icon": "arrows-rotate"},
+            {"name": CategoryName.TRANSFER_IN, "display_name": "Transfer In", "icon": "arrow-down-left"},
+            {"name": CategoryName.TRANSFER_OUT, "display_name": "Transfer Out", "icon": "arrow-up-right"},
             {"name": CategoryName.SHOPPING, "display_name": "Shopping", "icon": "bag-shopping"},
             {"name": CategoryName.ENTERTAINMENT, "display_name": "Entertainment", "icon": "film"},
             {"name": CategoryName.HEALTHCARE, "display_name": "Healthcare", "icon": "heart-pulse"},

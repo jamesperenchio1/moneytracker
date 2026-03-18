@@ -17,7 +17,7 @@ from app.models.brokerage import BrokerageAccount
 from app.models.portfolio import Holding, PortfolioTransaction, TradeAction
 from app.models.asset import Asset, HistoricalPrice
 from app.parsers.detector import detect_bank_parser, detect_brokerage_parser
-from app.services.categorizer import infer_category
+from app.services.categorizer import infer_category, resolve_transfer_direction, TRANSFER_CATEGORIES
 from app.services.market_data import fetch_historical_prices_sync
 
 logger = logging.getLogger(__name__)
@@ -181,6 +181,10 @@ def _process_bank_statement(stmt: Statement, db: Session, audit: list[dict]) -> 
 
     for i, ptxn in enumerate(parsed_txns, 1):
         cat_name = infer_category(ptxn.description)
+        # Resolve undirected TRANSFERS to TRANSFER_IN / TRANSFER_OUT so that
+        # analytics can cleanly exclude them from income and expense totals.
+        if cat_name in TRANSFER_CATEGORIES:
+            cat_name = resolve_transfer_direction(ptxn.transaction_type)
         category = categories.get(cat_name.value) if cat_name else None
 
         is_cc = _is_cc_payment(ptxn.description or "")

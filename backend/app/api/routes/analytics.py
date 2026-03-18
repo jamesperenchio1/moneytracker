@@ -3,14 +3,14 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, extract
+from sqlalchemy import select, func, and_, case
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.bank import BankAccount
-from app.models.transaction import Transaction, Category, TransactionType
+from app.models.transaction import Transaction, Category, TransactionType, CategoryName
 from app.models.brokerage import BrokerageAccount
 from app.models.portfolio import Holding
 from app.models.asset import Asset, HistoricalPrice
@@ -26,6 +26,13 @@ from app.schemas.analytics import (
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
+# Category names that represent money movement but are NOT real income / expenses.
+_TRANSFER_NAMES = [
+    CategoryName.TRANSFERS,
+    CategoryName.TRANSFER_IN,
+    CategoryName.TRANSFER_OUT,
+]
+
 
 @router.get("/dashboard", response_model=AnalyticsDashboard)
 async def get_dashboard(
@@ -39,13 +46,25 @@ async def get_dashboard(
 
     user_accounts = select(BankAccount.id).where(BankAccount.user_id == user.id)
 
-    # Total cash (sum of bank balances)
+    # IDs of transfer categories — used to exclude them from income/expenses
+    transfer_ids_result = await db.execute(
+        select(Category.id).where(Category.name.in_(_TRANSFER_NAMES))
+    )
+    transfer_ids = [r for r, in transfer_ids_result.all()]
+
+    # ------------------------------------------------------------------ #
+    # Total cash (sum of bank account balances)
+    # ------------------------------------------------------------------ #
     cash_result = await db.execute(
-        select(func.coalesce(func.sum(BankAccount.balance), 0)).where(BankAccount.user_id == user.id)
+        select(func.coalesce(func.sum(BankAccount.balance), 0)).where(
+            BankAccount.user_id == user.id
+        )
     )
     total_cash = float(cash_result.scalar())
 
-    # Total investments (sum of holdings * current price)
+    # ------------------------------------------------------------------ #
+    # Total investments (holdings * current price)
+    # ------------------------------------------------------------------ #
     holdings_result = await db.execute(
         select(Holding)
         .join(BrokerageAccount)
@@ -57,31 +76,73 @@ async def get_dashboard(
         float(h.quantity) * float(h.asset.current_price or 0) for h in holdings
     )
 
-    # Monthly spending (current month debits)
+    # ------------------------------------------------------------------ #
+    # Monthly spending — real expenses only (exclude transfers & CC payments
+    # since CC charges are already counted in the CC statement)
+    # ------------------------------------------------------------------ #
     spending_result = await db.execute(
         select(func.coalesce(func.sum(Transaction.amount), 0)).where(
             and_(
                 Transaction.bank_account_id.in_(user_accounts),
                 Transaction.transaction_type == TransactionType.DEBIT,
                 Transaction.transaction_date >= start_of_month,
+                # Exclude transfers out — they are not true spending
+                Transaction.category_id.notin_(transfer_ids) if transfer_ids
+                else True,
             )
         )
     )
     monthly_spending = float(spending_result.scalar())
 
-    # Monthly income (current month credits)
+    # ------------------------------------------------------------------ #
+    # Monthly income — genuine income only (salary, dividends, etc.)
+    # Excludes transfer-in so money sent by a friend doesn't inflate income.
+    # ------------------------------------------------------------------ #
     income_result = await db.execute(
         select(func.coalesce(func.sum(Transaction.amount), 0)).where(
             and_(
                 Transaction.bank_account_id.in_(user_accounts),
                 Transaction.transaction_type == TransactionType.CREDIT,
                 Transaction.transaction_date >= start_of_month,
+                Transaction.category_id.notin_(transfer_ids) if transfer_ids
+                else True,
             )
         )
     )
     monthly_income = float(income_result.scalar())
 
-    # Spending breakdown by category (current month)
+    # ------------------------------------------------------------------ #
+    # Monthly transfers in/out (this month)
+    # ------------------------------------------------------------------ #
+    transfers_in_result = await db.execute(
+        select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+            and_(
+                Transaction.bank_account_id.in_(user_accounts),
+                Transaction.transaction_type == TransactionType.CREDIT,
+                Transaction.transaction_date >= start_of_month,
+                Transaction.category_id.in_(transfer_ids) if transfer_ids
+                else False,
+            )
+        )
+    )
+    monthly_transfers_in = float(transfers_in_result.scalar())
+
+    transfers_out_result = await db.execute(
+        select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+            and_(
+                Transaction.bank_account_id.in_(user_accounts),
+                Transaction.transaction_type == TransactionType.DEBIT,
+                Transaction.transaction_date >= start_of_month,
+                Transaction.category_id.in_(transfer_ids) if transfer_ids
+                else False,
+            )
+        )
+    )
+    monthly_transfers_out = float(transfers_out_result.scalar())
+
+    # ------------------------------------------------------------------ #
+    # Spending breakdown by category (current month, real expenses only)
+    # ------------------------------------------------------------------ #
     breakdown_result = await db.execute(
         select(
             Category.display_name,
@@ -94,28 +155,99 @@ async def get_dashboard(
                 Transaction.bank_account_id.in_(user_accounts),
                 Transaction.transaction_type == TransactionType.DEBIT,
                 Transaction.transaction_date >= start_of_month,
+                Transaction.category_id.notin_(transfer_ids) if transfer_ids
+                else True,
             )
         )
         .group_by(Category.display_name)
     )
     breakdowns = breakdown_result.all()
-    spending_breakdown = []
-    for cat_name, total, cnt in breakdowns:
-        spending_breakdown.append(
-            SpendingBreakdown(
-                category=cat_name or "Uncategorized",
-                total=float(total),
-                percentage=(float(total) / monthly_spending * 100) if monthly_spending > 0 else 0,
-                transaction_count=cnt,
-            )
+    spending_breakdown = [
+        SpendingBreakdown(
+            category=cat_name or "Uncategorized",
+            total=float(total),
+            percentage=(float(total) / monthly_spending * 100)
+            if monthly_spending > 0
+            else 0,
+            transaction_count=cnt,
         )
+        for cat_name, total, cnt in breakdowns
+    ]
 
-    # Monthly trends
+    # ------------------------------------------------------------------ #
+    # Monthly trends — one row per month, columns split by flow type
+    # ------------------------------------------------------------------ #
+    # Using CASE WHEN so we get a single pass with four sums per month.
+    is_transfer = (
+        Transaction.category_id.in_(transfer_ids) if transfer_ids else False
+    )
+    is_not_transfer = (
+        Transaction.category_id.notin_(transfer_ids) if transfer_ids else True
+    )
+
     trends_result = await db.execute(
         select(
             func.to_char(Transaction.transaction_date, "YYYY-MM").label("month"),
-            Transaction.transaction_type,
-            func.sum(Transaction.amount).label("total"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                Transaction.transaction_type == TransactionType.CREDIT,
+                                is_not_transfer,
+                            ),
+                            Transaction.amount,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("income"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                Transaction.transaction_type == TransactionType.DEBIT,
+                                is_not_transfer,
+                            ),
+                            Transaction.amount,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("expenses"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                Transaction.transaction_type == TransactionType.CREDIT,
+                                is_transfer,
+                            ),
+                            Transaction.amount,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("transfers_in"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                Transaction.transaction_type == TransactionType.DEBIT,
+                                is_transfer,
+                            ),
+                            Transaction.amount,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("transfers_out"),
         )
         .where(
             and_(
@@ -123,24 +255,25 @@ async def get_dashboard(
                 Transaction.transaction_date >= lookback,
             )
         )
-        .group_by("month", Transaction.transaction_type)
+        .group_by("month")
         .order_by("month")
     )
-    trends_raw = trends_result.all()
-    month_data = {}
-    for month, txn_type, total in trends_raw:
-        month_data.setdefault(month, {"income": 0, "expenses": 0})
-        if txn_type == TransactionType.CREDIT:
-            month_data[month]["income"] = float(total)
-        elif txn_type == TransactionType.DEBIT:
-            month_data[month]["expenses"] = float(total)
 
     monthly_trends = [
-        MonthlyTrend(month=m, income=d["income"], expenses=d["expenses"], net=d["income"] - d["expenses"])
-        for m, d in sorted(month_data.items())
+        MonthlyTrend(
+            month=row.month,
+            income=float(row.income),
+            expenses=float(row.expenses),
+            transfers_in=float(row.transfers_in),
+            transfers_out=float(row.transfers_out),
+            net=float(row.income) - float(row.expenses),
+        )
+        for row in trends_result.all()
     ]
 
-    # Recurring payments detection (transactions with similar description appearing 2+ times)
+    # ------------------------------------------------------------------ #
+    # Recurring payments (debits, exclude transfers, ≥2 occurrences)
+    # ------------------------------------------------------------------ #
     recurring_result = await db.execute(
         select(
             Transaction.description,
@@ -155,6 +288,8 @@ async def get_dashboard(
                 Transaction.transaction_type == TransactionType.DEBIT,
                 Transaction.description.isnot(None),
                 Transaction.transaction_date >= lookback,
+                Transaction.category_id.notin_(transfer_ids) if transfer_ids
+                else True,
             )
         )
         .group_by(Transaction.description)
@@ -167,12 +302,16 @@ async def get_dashboard(
             description=r.description or "Unknown",
             amount=float(r.avg_amount),
             frequency="monthly",
-            last_date=r.last_date.date() if hasattr(r.last_date, "date") else r.last_date,
+            last_date=r.last_date.date()
+            if hasattr(r.last_date, "date")
+            else r.last_date,
         )
         for r in recurring_result.all()
     ]
 
-    # Anomaly detection (transactions > 2 std dev from mean)
+    # ------------------------------------------------------------------ #
+    # Spending anomalies (expenses > 2 std devs from mean, no transfers)
+    # ------------------------------------------------------------------ #
     stats_result = await db.execute(
         select(
             func.avg(Transaction.amount).label("mean"),
@@ -182,6 +321,8 @@ async def get_dashboard(
                 Transaction.bank_account_id.in_(user_accounts),
                 Transaction.transaction_type == TransactionType.DEBIT,
                 Transaction.transaction_date >= lookback,
+                Transaction.category_id.notin_(transfer_ids) if transfer_ids
+                else True,
             )
         )
     )
@@ -201,6 +342,8 @@ async def get_dashboard(
                     Transaction.transaction_type == TransactionType.DEBIT,
                     Transaction.amount > threshold,
                     Transaction.transaction_date >= lookback,
+                    Transaction.category_id.notin_(transfer_ids) if transfer_ids
+                    else True,
                 )
             )
             .order_by(Transaction.amount.desc())
@@ -213,8 +356,12 @@ async def get_dashboard(
                     amount=float(t.amount),
                     description=t.description,
                     category=t.category.display_name if t.category else None,
-                    date=t.transaction_date.date() if hasattr(t.transaction_date, "date") else t.transaction_date,
-                    deviation_factor=round((float(t.amount) - mean_val) / std_val, 2),
+                    date=t.transaction_date.date()
+                    if hasattr(t.transaction_date, "date")
+                    else t.transaction_date,
+                    deviation_factor=round(
+                        (float(t.amount) - mean_val) / std_val, 2
+                    ),
                 )
             )
 
@@ -224,6 +371,8 @@ async def get_dashboard(
         total_cash=total_cash,
         monthly_spending=monthly_spending,
         monthly_income=monthly_income,
+        monthly_transfers_in=monthly_transfers_in,
+        monthly_transfers_out=monthly_transfers_out,
         spending_breakdown=spending_breakdown,
         monthly_trends=monthly_trends,
         recurring_payments=recurring,
